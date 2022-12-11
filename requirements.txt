@@ -1,0 +1,12 @@
+flask-swagger-ui
+Flask
+flask_cors
+flask_caching
+flask-script
+werkzeug
+easydict
+requests
+waitress
+six
+responses
+ipfshttpclient
