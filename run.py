@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from flask import Flask, abort, request, send_file, render_template
+from flask import Flask, abort, request, send_file, render_template, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
@@ -18,14 +18,14 @@ root = logging.getLogger('')
 root.addHandler(console)
 
 
-def download(url):
+def download_url(url):
     h = {"Accept-Encoding": "identity"}
     r = requests.get(url, stream=True, verify=False, headers=h)
 
     try:
         r.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        logging.exception("IPFS Server Error! url:{0}, exception:{1}".format(url, str(e)))
+        print(e.with_traceback)
         return "IPFS Server Error! \n", 503
 
     if "content-type" in r.headers:
@@ -48,50 +48,95 @@ def health_check():
 
 
 @app.route('/', methods=['GET'])
+@app.route('/', methods=['GET'])
 def display_ui():
     return render_template('upload.html')
 
 
-@app.route("/<path:path>")
-@app.route("/down/<path:path>")
-def down(path):
+# Experimental to check how to download the file as attachment and to download with the same ext as uploaded
+def download_ipfs(hashcode):
+    client = ipfshttpclient.connect(app.config['IPFS_CONNECT_URL'])
+
+    # Retrieve the file information from IPFS using the given hash
+    file_info = client.object.get(hashcode)
+
+    # Get the filename associated with the file by looking for the first "Name" field in the file's links
+    filename = next((link['Name'] for link in file_info['Links'] if 'Name' in link), None)
+
+    # If the filename is not available, use a default filename based on the hash value
+    if not filename:
+        filename = '{}.bin'.format(hashcode)
+
+    # Extract the file extension from the filename
+    _, ext = os.path.splitext(filename)
+
+    # Download the file from IPFS
+    with client.cat(hashcode) as stream:
+        # Return the downloaded file as a Flask response with the correct filename and extension
+        return send_file(stream, as_attachment=True, download_name='downloaded_file{}'.format(ext))
+
+
+@app.route("/download/<cid>", methods=['GET'])
+def down(cid):
     try:
-        p = os.path.splitext(path)
-        hash = str(p[0])
+        p = os.path.splitext(cid)
+        hashcode = str(p[0])
 
-        if not hash or not hash.startswith('Qm'):
-            return "<Invalid Path>", 404
+        if not hashcode or not hashcode.startswith('Qm'):
+            return "Invalid CID provided", 404
 
-        logging.info("hash:{0}".format(hash), {'app': 'dfile-down-req'})
+        print("hashcode:{0}".format(hashcode), {'app': 'dfile-down-req'})
 
-        url = app.config['IPFS_FILE_URL'] + hash
-
-        return download(url)
+        url = app.config['IPFS_FILE_URL'] + hashcode
+        return download_url(url)
+        # return download_ipfs(hashcode)
     except Exception as e:
-        logging.exception("Download Error! path:{0}, exception:{1}".format(path, str(e)))
+        print(e.with_traceback)
         return "Download Error! \n", 503
 
 
 @app.route("/", methods=["POST", "PUT"])
 @app.route("/upload_ipfs", methods=["POST", "PUT"])
 def upload_file_ipfs():
+    """
+    This function will upload the file into ipfs
+    :return: IPFS file URL
+    """
     try:
         if "file" in request.files:
             file = request.files["file"]
-            logging.info("file name: {}".format(file.filename))
+            print("file name: {}".format(file.filename))
             client = ipfshttpclient.connect(app.config['IPFS_CONNECT_URL'])
             res = client.add(file)
 
-            logging.info("upload res: {}".format(res))
+            print("upload res: {}".format(res))
             url = app.config['DOMAIN'] + '/' + str(res['Hash'])
             return url
         abort(400)  # throw exception if the file attribute is not found in the request
 
     except Exception as e:
-        logging.exception("Upload Error! exception:{}".format(str(e)))
+        print(e.with_traceback)
         return "Upload Error! \n", 503
+
+
+@app.route('/list_files', methods=['GET'])
+def show_all_files():
+    client = ipfshttpclient.connect(app.config['IPFS_CONNECT_URL'])
+
+    objects = client.pin.ls(type='recursive')['Keys']
+
+    # Create a list to store the file information
+    files = []
+
+    # Iterate over the objects and retrieve their information
+    for obj in objects:
+        file_info = client.object.stat(obj)
+        files.append({'CID': obj, 'Size': file_info['CumulativeSize']})
+
+    # Return the list of files as JSON
+    return jsonify({'files': files})
 
 
 if __name__ == "__main__":
     app.run(debug=True, port=5005, host="0.0.0.0")
-    logging.info("IPFS Controller  is running.")
+    print("IPFS Controller  is running.")
