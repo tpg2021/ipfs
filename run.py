@@ -8,6 +8,8 @@ import os
 import requests
 import ipfshttpclient
 import logging
+import db
+import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -17,19 +19,24 @@ console = logging.StreamHandler()
 root = logging.getLogger('')
 root.addHandler(console)
 
+db.__init__()
 
-def download_url(url):
+
+def download_url(url, hashcode):
     h = {"Accept-Encoding": "identity"}
+    my_query = 'select file_name from file_info where cid =?'
+    file_name = db.execute_query(my_query, hashcode)
+    print(f'The download file name >> {file_name}')
     r = requests.get(url, stream=True, verify=False, headers=h)
 
     try:
         r.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print(e.with_traceback)
+        print(traceback.format_exc())
         return "IPFS Server Error! \n", 503
 
     if "content-type" in r.headers:
-        return send_file(r.raw, r.headers["content-type"])
+        return send_file(r.raw, r.headers["content-type"], as_attachment=True, download_name=file_name)
     else:
         return send_file(r.raw)
 
@@ -56,24 +63,13 @@ def display_ui():
 # Experimental to check how to download the file as attachment and to download with the same ext as uploaded
 def download_ipfs(hashcode):
     client = ipfshttpclient.connect(app.config['IPFS_CONNECT_URL'])
-
-    # Retrieve the file information from IPFS using the given hash
-    file_info = client.object.get(hashcode)
-
-    # Get the filename associated with the file by looking for the first "Name" field in the file's links
-    filename = next((link['Name'] for link in file_info['Links'] if 'Name' in link), None)
-
-    # If the filename is not available, use a default filename based on the hash value
-    if not filename:
-        filename = '{}.bin'.format(hashcode)
-
-    # Extract the file extension from the filename
-    _, ext = os.path.splitext(filename)
-
+    my_query = 'select file_name from file_info where cid =?'
+    file_name = db.execute_query(my_query, hashcode)
+    print(f'The file name >> {file_name}')
     # Download the file from IPFS
-    with client.cat(hashcode) as stream:
-        # Return the downloaded file as a Flask response with the correct filename and extension
-        return send_file(stream, as_attachment=True, download_name='downloaded_file{}'.format(ext))
+    stream = client.cat(hashcode)
+    # Return the downloaded file as a Flask response with the correct filename and extension
+    return send_file(stream, as_attachment=True, download_name=file_name)
 
 
 @app.route("/download/<cid>", methods=['GET'])
@@ -88,10 +84,10 @@ def down(cid):
         print("hashcode:{0}".format(hashcode), {'app': 'dfile-down-req'})
 
         url = app.config['IPFS_FILE_URL'] + hashcode
-        return download_url(url)
+        return download_url(url, hashcode)
         # return download_ipfs(hashcode)
     except Exception as e:
-        print(e.with_traceback)
+        print(traceback.format_exc())
         return "Download Error! \n", 503
 
 
@@ -105,17 +101,20 @@ def upload_file_ipfs():
     try:
         if "file" in request.files:
             file = request.files["file"]
-            print("file name: {}".format(file.filename))
+            file_name = file.filename
+            print("file name: {}".format(file_name))
             client = ipfshttpclient.connect(app.config['IPFS_CONNECT_URL'])
             res = client.add(file)
 
             print("upload res: {}".format(res))
-            url = app.config['DOMAIN'] + '/' + str(res['Hash'])
+            cid = str(res['Hash'])
+            url = app.config['DOMAIN'] + '/' + cid
+            db.insert(cid, file_name)
             return url
         abort(400)  # throw exception if the file attribute is not found in the request
 
     except Exception as e:
-        print(e.with_traceback)
+        print(traceback.format_exc())
         return "Upload Error! \n", 503
 
 
