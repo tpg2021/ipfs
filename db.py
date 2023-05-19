@@ -8,10 +8,10 @@ def get_connection():
 
 def insert(*params):
     conn1 = get_connection()
-    insert_query = 'INSERT INTO FILE_INFO VALUES(?,?)'
-    conn1.execute(insert_query, (params[0], params[1]))
+    insert_query = 'INSERT INTO FILE_INFO VALUES(?,?,?)'
+    conn1.execute(insert_query, (params[0], params[1], params[2]))
     conn1.commit()
-    print(f'Record with cid {params[0]} and file_name {params[1]} inserted successfully')
+    print(f'Record with cid {params[0]}, file_name {params[1]} and file_classifier {params[2]} inserted successfully')
     conn1.close()
 
 
@@ -31,6 +31,7 @@ def __init__():
     CREATE TABLE IF NOT EXISTS FILE_INFO 
        (CID TEXT PRIMARY KEY     NOT NULL, 
        FILE_NAME        TEXT    NOT NULL);
+       FILE_CLASSIFIER  TEXT    NOT NULL);
     ''')
     print('Table successfully created!! ')
     conn1.commit()

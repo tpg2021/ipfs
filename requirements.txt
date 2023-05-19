@@ -10,3 +10,7 @@ waitress
 six
 responses
 ipfshttpclient
+spacy
+scikit-learn==0.24.2
+joblib
+pandas

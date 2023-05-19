@@ -10,6 +10,8 @@ import ipfshttpclient
 import logging
 import db
 import traceback
+import classifier
+import Utils as utils
 
 app = Flask(__name__)
 CORS(app)
@@ -109,7 +111,9 @@ def upload_file_ipfs():
             print("upload res: {}".format(res))
             cid = str(res['Hash'])
             url = app.config['DOMAIN'] + '/' + cid
-            db.insert(cid, file_name)
+            pdf_text = utils.process_pdf(file)
+            file_classifier = classifier.get_file_classifier(pdf_text)
+            db.insert(cid, file_name, file_classifier)
             return url
         abort(400)  # throw exception if the file attribute is not found in the request
 
